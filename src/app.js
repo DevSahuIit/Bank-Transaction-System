@@ -18,7 +18,7 @@ const accountRouter = require("./routes/account.routes")
 
 
 app.use("/api/auth", authRouter) //jo jo /api/auth yeah lekar aayega usko authRouter pe bhej denge 
-app.use("api/accounts",accountRouter)
+app.use("/api/accounts",accountRouter)
 
 
 
