@@ -1,17 +1,18 @@
-const express = require("express")
+const express = require("express");
+const router = express.Router();
 
-const router = express.Router()
-const authMiddleware = require("../middleware/auth.middleware")
-const  accountController  = require("../controllers/account.controller")
+// 1. Destructure the exact middleware function from the exported object
+const { authMiddleware } = require("../middleware/auth.middleware");
+
+// 2. Destructure the exact controller functions from the exported object
+const { createAccount } = require("../controllers/account.controller");
 
 /**
- * -POST /api/accounts/
- * create a new account
- * -protected route
- * 
+ * - POST /api/accounts/
+ * Create a new account
+ * - Protected route
  */
+// 3. Call the functions directly by their exact names
+router.post("/", authMiddleware, createAccount);
 
-router.post("/",authMiddleware.authMiddleware,accountController.createAccountController)
-
-module.exports=router
-
+module.exports = router;

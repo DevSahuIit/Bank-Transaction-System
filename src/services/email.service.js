@@ -42,12 +42,30 @@ const sendEmail = async (to, subject, text, html) => {
 };
 
 async function sendRegisterEmail(userEmail,name){
-    console.log("hi email send")
+    // console.log("hi email send")
     const subject = "Welcome to backend ledger";
     const text = `HEllo ${name},\n\n wea are Thank full to have you on BAckend Ledger Community `
     const html = `<p>Hello ${name},</p><p>Thank you for registering at Backend Ledger. We're excited to have you on board!</p><p>Best regards,<br>The Backend Ledger Team</p>`;
     await sendEmail(userEmail,subject,text,html);
 }
+async function sendTransactionEmail(userEmail,name){
+    // console.log("hi email send")
+    const subject = "Transaction sucessfull";
+    const text = `HEllo ${name},\n\n wea are Thank full to have you on BAckend Ledger Community `
+    const html = `<p>Hello ${name},</p><p>Thank you for registering at Backend Ledger. We're excited to have you on board!</p><p>Best regards,<br>The Backend Ledger Team</p>`;
+    await sendEmail(userEmail,subject,text,html);
+}
+async function sendTransactionFailureEmail(userEmail,name){
+    // console.log("hi email send")
+    const subject = "Welcome to backend ledger";
+    const text = `HEllo ${name},\n\n wea are Thank full to have you on BAckend Ledger Community `
+    const html = `<p>Hello ${name},</p><p>Thank you for registering at Backend Ledger. We're excited to have you on board!</p><p>Best regards,<br>The Backend Ledger Team</p>`;
+    await sendEmail(userEmail,subject,text,html);
+}
+
 module.exports = {
-    sendRegisterEmail
+    sendRegisterEmail,
+    sendTransactionEmail,
+    sendTransactionFailureEmail
+
 };
