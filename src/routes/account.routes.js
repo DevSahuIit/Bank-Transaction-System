@@ -1,18 +1,33 @@
-const express = require("express");
-const router = express.Router();
+const express = require("express")
+const authMiddleware = require("../middleware/auth.middleware")
+const accountController = require("../controllers/account.controller")
 
-// 1. Destructure the exact middleware function from the exported object
-const { authMiddleware } = require("../middleware/auth.middleware");
 
-// 2. Destructure the exact controller functions from the exported object
-const { createAccount } = require("../controllers/account.controller");
+const router = express.Router()
+
+
 
 /**
  * - POST /api/accounts/
- * Create a new account
- * - Protected route
+ * - Create a new account
+ * - Protected Route
  */
-// 3. Call the functions directly by their exact names
-router.post("/", authMiddleware, createAccount);
+router.post("/", authMiddleware.authMiddleware, accountController.createAccountController)
 
-module.exports = router;
+
+/**
+ * - GET /api/accounts/
+ * - Get all accounts of the logged-in user
+ * - Protected Route
+ */
+router.get("/", authMiddleware.authMiddleware, accountController.getUserAccountsController)
+
+
+/**
+ * - GET /api/accounts/balance/:accountId
+ */
+router.get("/balance/:accountId", authMiddleware.authMiddleware, accountController.getAccountBalanceController)
+
+
+
+module.exports = router
