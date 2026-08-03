@@ -10,7 +10,7 @@
     "outbox-relay": "node src/workers/outboxRelay.worker.js",
     "email-consumer": "node src/consumers/email.consumer.js",
     "audit-consumer": "node src/consumers/audit.consumer.js"
-},
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -24,6 +24,7 @@
     "kafkajs": "^2.2.4",
     "mongoose": "^9.9.1",
     "nodemailer": "^9.0.3",
+    "opossum": "^10.0.0",
     "rate-limiter-flexible": "^11.2.0",
     "redlock": "^5.0.0-beta.2"
   }
