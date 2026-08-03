@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div id="toast" class="toast" hidden></div>
+
+<!-- AUTH SCREEN -->
+<section id="auth-screen" class="auth-screen">
+  <div class="auth-card">
+    <div class="brand">
+      <span class="brand-mark">L</span>
+      <span class="brand-name">Ledger</span>
+    </div>
+
+    <div class="auth-tabs">
+      <button class="auth-tab active" data-tab="login">Log in</button>
+      <button class="auth-tab" data-tab="register">Create account</button>
+    </div>
+
+    <form id="login-form" class="auth-form">
+      <label>Email
+        <input type="email" name="email" required autocomplete="email">
+      </label>
+      <label>Password
+        <input type="password" name="password" required autocomplete="current-password">
+      </label>
+      <p class="form-error" id="login-error" hidden></p>
+      <button type="submit" class="btn btn-primary btn-full" id="login-submit">Log in</button>
+    </form>
+
+    <form id="register-form" class="auth-form" hidden>
+      <label>Full name
+        <input type="text" name="name" required autocomplete="name">
+      </label>
+      <label>Email
+        <input type="email" name="email" required autocomplete="email">
+      </label>
+      <label>Password
+        <input type="password" name="password" required minlength="6" autocomplete="new-password">
+      </label>
+      <p class="form-error" id="register-error" hidden></p>
+      <button type="submit" class="btn btn-primary btn-full" id="register-submit">Create account</button>
+    </form>
+  </div>
+</section>
+
+<!-- APP SHELL -->
+<div id="app-shell" class="app-shell" hidden>
+
+  <aside class="rail">
+    <div class="brand">
+      <span class="brand-mark">L</span>
+      <span class="brand-name">Ledger</span>
+    </div>
+
+    <nav class="rail-nav">
+      <button class="rail-link active" data-view="accounts">Accounts</button>
+      <button class="rail-link" data-view="transfer">Transfer</button>
+      <button class="rail-link" data-view="ledger">Ledger</button>
+    </nav>
+
+    <div class="rail-footer">
+      <div class="rail-user">
+        <span id="rail-user-name">—</span>
+        <span id="rail-user-email" class="muted"></span>
+      </div>
+      <button id="logout-btn" class="btn btn-ghost btn-full">Log out</button>
+    </div>
+  </aside>
+
+  <main class="main">
+
+    <!-- ACCOUNTS VIEW -->
+    <section id="view-accounts" class="view active">
+      <header class="view-header">
+        <h1>Accounts</h1>
+        <div class="header-actions">
+          <button id="request-funds-btn" class="btn btn-secondary">Request funds</button>
+          <button id="new-account-btn" class="btn btn-secondary">New account</button>
+        </div>
+      </header>
+      <div id="accounts-list" class="accounts-list"></div>
+      <p id="accounts-empty" class="empty-state" hidden>No accounts yet. Open one to get started.</p>
+    </section>
+
+    <!-- TRANSFER VIEW -->
+    <!-- TRANSFER VIEW -->
+<!-- TRANSFER VIEW -->
+<div id="view-transfer" class="view hidden">
+    <div class="transfer-grid">
+        
+        <!-- LEFT SIDE: The Transfer Form -->
+        <div class="transfer-left">
+            <h2>Transfer Money</h2>
+            
+            <form id="transfer-form">
+                <div class="input-group" style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Transfer from</label>
+                    <select id="transfer-from" name="fromAccount" required style="width: 100%; padding: 0.5rem;"></select>
+                </div>
+                
+                <div class="input-group" style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Deposit into</label>
+                    <input type="text" id="toAccount" name="toAccount" placeholder="Recipient Account ID" required style="width: 100%; padding: 0.5rem;">
+                </div>
+                
+                <div class="input-group" style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Amount (₹)</label>
+                    <input type="number" name="amount" placeholder="0.00" required min="1" style="width: 100%; padding: 0.5rem;">
+                </div>
+                
+                <div id="transfer-error" style="color: red; margin-bottom: 1rem;" hidden></div>
+                
+                <button type="submit" id="transfer-submit" style="width: 100%; padding: 0.75rem; background: #1f2937; color: white; border: none; border-radius: 6px; cursor: pointer;">Send transfer</button>
+            </form>
+
+        </div>
+
+        <!-- RIGHT SIDE: The Friend List -->
+        <div class="transfer-right">
+            <h2>Friends</h2>
+            
+            <div class="add-friend-bar">
+                <input type="text" id="new-friend-name" placeholder="Name (e.g. Rahul)">
+                <input type="text" id="new-friend-id" placeholder="Account ID">
+                <button id="btn-add-friend" class="btn-primary">Add</button>
+            </div>
+
+            <div class="search-friend-bar">
+                <input type="text" id="search-friend-input" placeholder="🔍 Search friends...">
+            </div>
+
+            <div id="friend-list-container" class="friend-list">
+                <!-- Javascript will inject friend cards here -->
+            </div>
+
+            <!-- Notice the 'hidden' attribute instead of class="hidden" -->
+            <div id="friend-history-container" hidden>
+                <div class="history-header">
+                    <button id="btn-back-to-friends" class="btn-secondary">← Back</button>
+                    <h3 id="history-friend-name">History</h3>
+                </div>
+                <div id="friend-history-list" class="friend-list">
+                    <!-- Javascript will inject previous transactions here -->
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+    <!-- LEDGER VIEW -->
+    <section id="view-ledger" class="view">
+      <header class="view-header">
+        <h1>Ledger</h1>
+        <select id="ledger-account-filter"></select>
+      </header>
+      <table class="statement">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Reference</th>
+            <th>Status</th>
+            <th class="num">Debit</th>
+            <th class="num">Credit</th>
+          </tr>
+        </thead>
+        <tbody id="statement-body"></tbody>
+      </table>
+      <p id="ledger-empty" class="empty-state" hidden>No transactions yet.</p>
+    </section>
+
+  </main>
+</div>
+
+<!-- NEW ACCOUNT CONFIRM -->
+<div id="modal-backdrop" class="modal-backdrop" hidden>
+  <div class="modal">
+    <h2>Open a new account</h2>
+    <p>This creates a new INR account under your profile. You can hold more than one.</p>
+    <div class="modal-actions">
+      <button id="modal-cancel" class="btn btn-ghost">Cancel</button>
+      <button id="modal-confirm" class="btn btn-primary">Open account</button>
+    </div>
+  </div>
+</div>
+
+<!-- REQUEST FUNDS -->
+<div id="funds-modal-backdrop" class="modal-backdrop" hidden>
+  <div class="modal">
+    <h2>Request funds</h2>
+    <p>New accounts start at zero. Request starter funds from the system account — up to ₹5,000 per request, ₹20,000 total per person.</p>
+    <form id="funds-form" class="panel-form" style="padding:0; border:none;">
+      <label>Deposit into
+        <select name="toAccount" id="funds-account" required></select>
+      </label>
+      <label>Amount
+        <input type="number" name="amount" min="1" max="5000" step="0.01" placeholder="0.00" required>
+      </label>
+      <p class="form-error" id="funds-error" hidden></p>
+      <div class="modal-actions">
+        <button type="button" id="funds-cancel" class="btn btn-ghost">Cancel</button>
+        <button type="submit" id="funds-submit" class="btn btn-primary">Request</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

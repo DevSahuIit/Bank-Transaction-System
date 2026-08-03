@@ -2,8 +2,7 @@ const express = require("express")
 // calling express js
 const cookieParser = require("cookie-parser")
 
-
-
+const path = require("path")
 const app= express()
 // isme hum server k instence ko create karenge 
 // par isse server nhi start karege for that server.js
@@ -11,6 +10,10 @@ const app= express()
 
 app.use(express.json()) // request.body k andar ka data padhne k liyeh
 app.use(cookieParser())
+
+app.use(express.static(path.join(__dirname, "..", "public")))
+
+
 
 const authRouter = require("./routes/auth.routes")
 const accountRouter = require("./routes/account.routes")

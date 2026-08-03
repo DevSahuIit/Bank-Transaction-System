@@ -1,28 +1,26 @@
 const express = require("express");
 const router = express.Router();
 
-// Import the transaction controller functions exactly as named
+// Import the transaction controller functions
 const { 
+    createInitialFundsTransaction,
+    getMyTransactions,
     createTransaction, 
-    createInitialFundsTransaction 
+    requestFunds,
+    getPeerTransactions // 👈 Added this
 } = require("../controllers/transaction.controller");
 
-// Import your auth middleware guards
 const { 
     authMiddleware, 
     authSystemUserMiddleware 
 } = require("../middleware/auth.middleware");
 
-/**
- * Route: Standard Peer-to-Peer Customer Transfer
- * Protected by regular customer authentication
- */
+router.get("/", authMiddleware, getMyTransactions);
 router.post("/create", authMiddleware, createTransaction);
-
-/**
- * Route: System Initial Cash Payload Injection
- * Protected by elite system/admin user authentication
- */
 router.post("/system/initial-funds", authSystemUserMiddleware, createInitialFundsTransaction);
+router.post("/request-funds", authMiddleware, requestFunds); 
+
+// --- NEW ROUTE ---
+router.get("/peer/:peerId", authMiddleware, getPeerTransactions); 
 
 module.exports = router;

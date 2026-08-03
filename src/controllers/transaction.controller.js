@@ -3,7 +3,8 @@ const ledgerModel = require("../models/ledger.model")
 const accountModel = require("../models/account.model")
 const emailService = require("../services/email.service")
 const mongoose = require("mongoose")
-
+const { MAX_FUNDS_REQUEST_AMOUNT, MAX_TOTAL_FUNDS_PER_USER } = require("../config/constants");
+const userModel = require("../models/user.model");
 /**
  * - Create a new transaction
  * THE 10-STEP TRANSFER FLOW:
@@ -236,7 +237,178 @@ async function createInitialFundsTransaction(req, res) {
 
 }
 
+async function getMyTransactions(req, res) {
+    const accounts = await accountModel.find({ user: req.user._id }).select("_id")
+    const accountIds = accounts.map(a => a._id)
+
+    const transactions = await transactionModel.find({
+        $or: [
+            { fromAccount: { $in: accountIds } },
+            { toAccount: { $in: accountIds } }
+        ]
+    }).sort({ createdAt: -1 }).limit(50)
+
+    res.status(200).json({ transactions })
+}
+
+/**
+ * Add this to the TOP of src/controllers/transaction.controller.js,
+ * alongside the other requires that are already there:
+ *
+ *   const userModel = require("../models/user.model")
+ *   const { MAX_FUNDS_REQUEST_AMOUNT, MAX_TOTAL_FUNDS_PER_USER } = require("../config/constants")
+ *
+ * Then paste this whole function in, anywhere above module.exports.
+ * Finally add requestFunds to the module.exports object at the bottom.
+ */
+
+async function requestFunds(req, res) {
+    const { toAccount, amount, idempotencyKey } = req.body
+
+    if (!toAccount || !amount || !idempotencyKey) {
+        return res.status(400).json({
+            message: "toAccount, amount and idempotencyKey are required"
+        })
+    }
+
+    if (amount <= 0 || amount > MAX_FUNDS_REQUEST_AMOUNT) {
+        return res.status(400).json({
+            message: `You can request between 1 and ${MAX_FUNDS_REQUEST_AMOUNT} per request`
+        })
+    }
+
+    // the account being funded must actually belong to whoever is asking —
+    // otherwise anyone could pass a stranger's accountId and fund it instead
+    const toUserAccount = await accountModel.findOne({ _id: toAccount, user: req.user._id })
+
+    if (!toUserAccount) {
+        return res.status(400).json({
+            message: "This account does not belong to you"
+        })
+    }
+
+    if (toUserAccount.status !== "ACTIVE") {
+        return res.status(400).json({
+            message: "Account must be ACTIVE to receive funds"
+        })
+    }
+
+    const isTransactionAlreadyExists = await transactionModel.findOne({ idempotencyKey })
+    if (isTransactionAlreadyExists) {
+        return res.status(200).json({
+            message: "Request already processed",
+            transaction: isTransactionAlreadyExists
+        })
+    }
+
+    const systemUser = await userModel.findOne({ systemUser: true }).select("+systemUser")
+    if (!systemUser) {
+        return res.status(500).json({ message: "Funding is not available right now, contact support" })
+    }
+
+    const systemAccount = await accountModel.findOne({ user: systemUser._id, status: "ACTIVE" })
+    if (!systemAccount) {
+        return res.status(500).json({ message: "Funding is not available right now, contact support" })
+    }
+
+    // lifetime cap: sum every CREDIT this user has ever received specifically
+    // FROM the system account, across all of their own accounts
+    const userAccounts = await accountModel.find({ user: req.user._id }).select("_id")
+    const userAccountIds = userAccounts.map(a => a._id)
+
+    const alreadyReceived = await transactionModel.aggregate([
+        {
+            $match: {
+                fromAccount: systemAccount._id,
+                toAccount: { $in: userAccountIds },
+                status: "COMPLETED"
+            }
+        },
+        { $group: { _id: null, total: { $sum: "$amount" } } }
+    ])
+
+    const totalReceived = alreadyReceived[ 0 ]?.total || 0
+
+    if (totalReceived + Number(amount) > MAX_TOTAL_FUNDS_PER_USER) {
+        return res.status(400).json({
+            message: `You've reached your funding limit of ${MAX_TOTAL_FUNDS_PER_USER}. You've received ${totalReceived} so far.`
+        })
+    }
+
+    const session = await mongoose.startSession()
+    try {
+        session.startTransaction()
+
+        const transaction = (await transactionModel.create([ {
+            fromAccount: systemAccount._id,
+            toAccount: toUserAccount._id,
+            amount,
+            idempotencyKey,
+            status: "PENDING"
+        } ], { session }))[ 0 ]
+
+        await ledgerModel.create([ {
+            account: systemAccount._id,
+            amount,
+            transaction: transaction._id,
+            type: "DEBIT"
+        } ], { session })
+
+        await ledgerModel.create([ {
+            account: toUserAccount._id,
+            amount,
+            transaction: transaction._id,
+            type: "CREDIT"
+        } ], { session })
+
+        await transactionModel.findOneAndUpdate(
+            { _id: transaction._id },
+            { status: "COMPLETED" },
+            { session }
+        )
+
+        await session.commitTransaction()
+        session.endSession()
+
+        return res.status(201).json({
+            message: "Funds added to your account",
+            transaction
+        })
+    } catch (error) {
+        // unlike the existing createTransaction function, this one CAN
+        // clean up after itself, because session is in scope in the catch
+        await session.abortTransaction()
+        session.endSession()
+        return res.status(500).json({
+            message: "Could not process your funding request, please retry"
+        })
+    }
+}
+
+// Paste this right above module.exports
+async function getPeerTransactions(req, res) {
+    const { peerId } = req.params;
+
+    // 1. Get all of my account IDs
+    const accounts = await accountModel.find({ user: req.user._id }).select("_id");
+    const accountIds = accounts.map(a => a._id);
+
+    // 2. Find transactions where I sent to them, OR they sent to me
+    const transactions = await transactionModel.find({
+        $or: [
+            { fromAccount: { $in: accountIds }, toAccount: peerId },
+            { toAccount: { $in: accountIds }, fromAccount: peerId }
+        ]
+    }).sort({ createdAt: -1 }).limit(50);
+
+    res.status(200).json({ transactions });
+}
+
+// Update your export block to include getPeerTransactions
 module.exports = {
     createTransaction,
-    createInitialFundsTransaction
+    createInitialFundsTransaction,
+    getMyTransactions,
+    requestFunds,
+    getPeerTransactions
 }
