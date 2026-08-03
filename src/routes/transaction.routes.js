@@ -15,8 +15,14 @@ const {
     authSystemUserMiddleware 
 } = require("../middleware/auth.middleware");
 
+// Import the transaction rate limiter
+const { transactionRateLimiter } = require("../middleware/rateLimiter.middleware");
+
 router.get("/", authMiddleware, getMyTransactions);
-router.post("/create", authMiddleware, createTransaction);
+
+// Apply transactionRateLimiter to prevent spamming transactions
+router.post("/create", authMiddleware, transactionRateLimiter, createTransaction);
+
 router.post("/system/initial-funds", authSystemUserMiddleware, createInitialFundsTransaction);
 router.post("/request-funds", authMiddleware, requestFunds); 
 

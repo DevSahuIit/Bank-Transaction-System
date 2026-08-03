@@ -36,39 +36,29 @@ accountSchema.index({ user: 1, status: 1 });
  * Note: Uses a standard function declaration so 'this' correctly references the account instance.
  */
 accountSchema.methods.getBalance = async function () {
-    // Dynamically require the ledger model to avoid circular dependency issues at boot
-    const ledgerModel = mongoose.model("ledger");
+    const redisClient = require("../config/redis");
+    const cacheKey = `balance:account:${this._id}`;
 
+    const cached = await redisClient.get(cacheKey);
+    if (cached !== null) {
+        return Number(cached);
+    }
+
+    const ledgerModel = mongoose.model("ledger");
     const result = await ledgerModel.aggregate([
-        // Step 1: Filter and capture all ledger documents belonging to THIS specific account instance
-        {
-            $match: {
-                account: this._id
-            }
-        },
-        // Step 2: Separate, compute, and sum up values by matching the structural ledger types
-        {
-            $group: {
-                _id: "$type",
-                totalAmount: { $sum: "$amount" }
-            }
-        }
+        { $match: { account: this._id } },
+        { $group: { _id: "$type", totalAmount: { $sum: "$amount" } } }
     ]);
 
-    // Step 3: Compute final math states based on uppercase 'CREDIT' and 'DEBIT' map histories
-    let creditTotal = 0;
-    let debitTotal = 0;
-
+    let creditTotal = 0, debitTotal = 0;
     result.forEach((item) => {
-        if (item._id === "CREDIT") {
-            creditTotal = item.totalAmount;
-        } else if (item._id === "DEBIT") {
-            debitTotal = item.totalAmount;
-        }
+        if (item._id === "CREDIT") creditTotal = item.totalAmount;
+        else if (item._id === "DEBIT") debitTotal = item.totalAmount;
     });
 
-    // Real available balance = Total Credits minus Total Debits
-    return creditTotal - debitTotal;
+    const balance = creditTotal - debitTotal;
+    await redisClient.set(cacheKey, balance, "EX", 30); // short TTL as a safety net
+    return balance;
 };
 
 const accountModel = mongoose.model("account", accountSchema);
