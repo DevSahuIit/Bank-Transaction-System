@@ -6,8 +6,11 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "npx nodemon server.js",
-    "start": "node server.js"
-  },
+    "start": "node server.js",
+    "outbox-relay": "node src/workers/outboxRelay.worker.js",
+    "email-consumer": "node src/consumers/email.consumer.js",
+    "audit-consumer": "node src/consumers/audit.consumer.js"
+},
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -18,6 +21,7 @@
     "express": "^4.18.2",
     "ioredis": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
+    "kafkajs": "^2.2.4",
     "mongoose": "^9.9.1",
     "nodemailer": "^9.0.3",
     "rate-limiter-flexible": "^11.2.0",

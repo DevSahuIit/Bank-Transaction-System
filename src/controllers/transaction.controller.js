@@ -4,9 +4,10 @@ const accountModel = require("../models/account.model")
 const emailService = require("../services/email.service")
 const mongoose = require("mongoose")
 const userModel = require("../models/user.model")
+const outboxModel = require("../models/outbox.model") // 👈 Added outbox model
 const { MAX_FUNDS_REQUEST_AMOUNT, MAX_TOTAL_FUNDS_PER_USER } = require("../config/constants")
 const redisClient = require("../config/redis")
-const { withAccountLock } = require("../utils/lock.util") // 👈 Added lock utility
+const { withAccountLock } = require("../utils/lock.util") 
 
 /**
  * - Create a new transaction
@@ -19,8 +20,8 @@ const { withAccountLock } = require("../utils/lock.util") // 👈 Added lock uti
      * 6. Create DEBIT ledger entry
      * 7. Create CREDIT ledger entry
      * 8. Mark transaction COMPLETED
-     * 9. Commit MongoDB session, clear cache, update Redis, release lock
-     * 10. Send email notification
+     * 9. Create OUTBOX entry for async side-effects (like email)
+     * 10. Commit MongoDB session, clear cache, update Redis, release lock
  */
 async function createTransaction(req, res) {
     /**
@@ -122,6 +123,22 @@ async function createTransaction(req, res) {
                 { session }
             )
 
+            /**
+             * 9. Create OUTBOX entry for async side-effects (like email)
+             */
+            await outboxModel.create([{
+                aggregateType: "transaction",
+                aggregateId: txn._id,
+                eventType: "TRANSACTION_COMPLETED",
+                payload: {
+                    transactionId: txn._id,
+                    toAccount,
+                    amount,
+                    userEmail: req.user.email,
+                    userName: req.user.name,
+                },
+            }], { session })
+
             await session.commitTransaction()
             session.endSession()
 
@@ -144,11 +161,6 @@ async function createTransaction(req, res) {
         return res.status(400).json({ message: "Transaction is Pending due to some issue, please retry after sometime" })
     }
     
-    /**
-     * 10. Send email notification
-     */
-    await emailService.sendTransactionEmail(req.user.email, req.user.name, amount, toAccount)
-
     return res.status(201).json({
         message: "Transaction completed successfully",
         transaction: transaction
