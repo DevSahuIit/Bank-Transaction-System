@@ -3,27 +3,25 @@ const ledgerModel = require("../models/ledger.model")
 const accountModel = require("../models/account.model")
 const emailService = require("../services/email.service")
 const mongoose = require("mongoose")
-const userModel = require("../models/user.model")
-const outboxModel = require("../models/outbox.model") // 👈 Added outbox model
-const { MAX_FUNDS_REQUEST_AMOUNT, MAX_TOTAL_FUNDS_PER_USER } = require("../config/constants")
-const redisClient = require("../config/redis")
-const { withAccountLock } = require("../utils/lock.util") 
-
+const { MAX_FUNDS_REQUEST_AMOUNT, MAX_TOTAL_FUNDS_PER_USER } = require("../config/constants");
+const userModel = require("../models/user.model");
 /**
  * - Create a new transaction
  * THE 10-STEP TRANSFER FLOW:
      * 1. Validate request
-     * 2. Validate idempotency key (Redis fast-path)
+     * 2. Validate idempotency key
      * 3. Check account status
      * 4. Acquire Lock & Derive sender balance from ledger
      * 5. Create transaction (PENDING)
      * 6. Create DEBIT ledger entry
      * 7. Create CREDIT ledger entry
      * 8. Mark transaction COMPLETED
-     * 9. Create OUTBOX entry for async side-effects (like email)
-     * 10. Commit MongoDB session, clear cache, update Redis, release lock
+     * 9. Commit MongoDB session
+     * 10. Send email notification
  */
+
 async function createTransaction(req, res) {
+
     /**
      * 1. Validate request
      */
@@ -35,31 +33,6 @@ async function createTransaction(req, res) {
         })
     }
 
-    /**
-     * 2. Validate idempotency key via Redis (Fast path)
-     */
-    const idempotencyRedisKey = `idem:txn:${idempotencyKey}`
-    // SET key only if not exists, TTL 24h. O(1) in Redis vs a Mongo index scan.
-    const isNew = await redisClient.set(idempotencyRedisKey, "PROCESSING", "EX", 86400, "NX")
-
-    if (!isNew) {
-        // Already seen — fall back to Mongo to return the real status/result
-        const existing = await transactionModel.findOne({ idempotencyKey })
-        if (existing) {
-            if (existing.status === "COMPLETED") {
-                return res.status(200).json({ message: "Transaction already processed", transaction: existing })
-            }
-            if (existing.status === "PENDING") {
-                return res.status(200).json({ message: "Transaction is still processing" })
-            }
-            return res.status(500).json({ message: `Transaction is ${existing.status}, please retry` })
-        }
-        // Redis key exists but Mongo write hasn't landed yet (race between two near-simultaneous
-        // retries) — treat as still processing rather than double-executing
-        return res.status(200).json({ message: "Transaction is still processing" })
-    }
-
-    // Now that idempotency is checked, fetch accounts
     const fromUserAccount = await accountModel.findOne({
         _id: fromAccount,
     })
@@ -76,8 +49,45 @@ async function createTransaction(req, res) {
     }
 
     /**
+     * 2. Validate idempotency key
+     */
+
+    const isTransactionAlreadyExists = await transactionModel.findOne({
+        idempotencyKey: idempotencyKey
+    })
+
+    if (isTransactionAlreadyExists) {
+        if (isTransactionAlreadyExists.status === "COMPLETED") {
+            return res.status(200).json({
+                message: "Transaction already processed",
+                transaction: isTransactionAlreadyExists
+            })
+
+        }
+
+        if (isTransactionAlreadyExists.status === "PENDING") {
+            return res.status(200).json({
+                message: "Transaction is still processing",
+            })
+        }
+
+        if (isTransactionAlreadyExists.status === "FAILED") {
+            return res.status(500).json({
+                message: "Transaction processing failed, please retry"
+            })
+        }
+
+        if (isTransactionAlreadyExists.status === "REVERSED") {
+            return res.status(500).json({
+                message: "Transaction was reversed, please retry"
+            })
+        }
+    }
+
+    /**
      * 3. Check account status
      */
+
     if (fromUserAccount.status !== "ACTIVE" || toUserAccount.status !== "ACTIVE") {
         await redisClient.set(idempotencyRedisKey, "FAILED", "EX", 86400) // Clear processing state
         return res.status(400).json({
@@ -87,24 +97,13 @@ async function createTransaction(req, res) {
 
     let transaction;
     try {
-        // 👈 Wrap everything critical in the lock to prevent double-spending
-        transaction = await withAccountLock(fromAccount, async () => {
-            
-            /**
-             * 4. Derive sender balance from ledger (NOW INSIDE LOCK)
-             */
-            const balance = await fromUserAccount.getBalance()
-            if (balance < amount) {
-                const err = new Error("INSUFFICIENT_FUNDS")
-                err.balance = balance
-                throw err
-            }
 
-            /**
-             * 5. Create transaction (PENDING)
-             */
-            const session = await mongoose.startSession()
-            session.startTransaction()
+
+        /**
+         * 5. Create transaction (PENDING)
+         */
+        const session = await mongoose.startSession()
+        session.startTransaction()
 
             const txn = (await transactionModel.create([{ 
                 fromAccount, 
@@ -114,57 +113,50 @@ async function createTransaction(req, res) {
                 status: "PENDING" 
             }], { session }))[0]
 
-            await ledgerModel.create([{ account: fromAccount, amount, transaction: txn._id, type: "DEBIT" }], { session })
-            await ledgerModel.create([{ account: toAccount, amount, transaction: txn._id, type: "CREDIT" }], { session })
-            
-            await transactionModel.findOneAndUpdate(
-                { _id: txn._id }, 
-                { status: "COMPLETED" }, 
-                { session }
-            )
+        const debitLedgerEntry = await ledgerModel.create([ {
+            account: fromAccount,
+            amount: amount,
+            transaction: transaction._id,
+            type: "DEBIT"
+        } ], { session })
 
-            /**
-             * 9. Create OUTBOX entry for async side-effects (like email)
-             */
-            await outboxModel.create([{
-                aggregateType: "transaction",
-                aggregateId: txn._id,
-                eventType: "TRANSACTION_COMPLETED",
-                payload: {
-                    transactionId: txn._id,
-                    toAccount,
-                    amount,
-                    userEmail: req.user.email,
-                    userName: req.user.name,
-                },
-            }], { session })
+        await (() => {
+            return new Promise((resolve) => setTimeout(resolve, 15 * 1000));
+        })()
 
-            await session.commitTransaction()
-            session.endSession()
+        const creditLedgerEntry = await ledgerModel.create([ {
+            account: toAccount,
+            amount: amount,
+            transaction: transaction._id,
+            type: "CREDIT"
+        } ], { session })
 
-            // Update Redis idempotency key so future retries short-circuit correctly
-            await redisClient.set(idempotencyRedisKey, "COMPLETED", "EX", 86400)
+        await transactionModel.findOneAndUpdate(
+            { _id: transaction._id },
+            { status: "COMPLETED" },
+            { session }
+        )
 
-            // Invalidate cached balances for both accounts since a transaction occurred
-            await redisClient.del(`balance:account:${fromAccount}`)
-            await redisClient.del(`balance:account:${toAccount}`)
 
-            return txn
-        })
+        await session.commitTransaction()
+        session.endSession()
     } catch (error) {
-        // If it fails, update Redis key so user can retry
-        await redisClient.set(idempotencyRedisKey, "FAILED", "EX", 86400)
 
-        if (error.message === "INSUFFICIENT_FUNDS") {
-            return res.status(400).json({ message: `Insufficient balance. Current balance is ${error.balance}. Requested amount is ${amount}` })
-        }
-        return res.status(400).json({ message: "Transaction is Pending due to some issue, please retry after sometime" })
+        return res.status(400).json({
+            message: "Transaction is Pending due to some issue, please retry after sometime",
+        })
+
     }
-    
+    /**
+     * 10. Send email notification
+     */
+    await emailService.sendTransactionEmail(req.user.email, req.user.name, amount, toAccount)
+
     return res.status(201).json({
         message: "Transaction completed successfully",
         transaction: transaction
     })
+
 }
 
 async function createInitialFundsTransaction(req, res) {
@@ -195,6 +187,7 @@ async function createInitialFundsTransaction(req, res) {
             message: "System user account not found"
         })
     }
+
 
     const session = await mongoose.startSession()
     session.startTransaction()
@@ -227,14 +220,12 @@ async function createInitialFundsTransaction(req, res) {
     await session.commitTransaction()
     session.endSession()
 
-    // 👈 Invalidate cached balances for both accounts
-    await redisClient.del(`balance:account:${fromUserAccount._id}`);
-    await redisClient.del(`balance:account:${toAccount}`);
-
     return res.status(201).json({
         message: "Initial funds transaction completed successfully",
         transaction: transaction
     })
+
+
 }
 
 async function getMyTransactions(req, res) {
@@ -251,6 +242,17 @@ async function getMyTransactions(req, res) {
     res.status(200).json({ transactions })
 }
 
+/**
+ * Add this to the TOP of src/controllers/transaction.controller.js,
+ * alongside the other requires that are already there:
+ *
+ *   const userModel = require("../models/user.model")
+ *   const { MAX_FUNDS_REQUEST_AMOUNT, MAX_TOTAL_FUNDS_PER_USER } = require("../config/constants")
+ *
+ * Then paste this whole function in, anywhere above module.exports.
+ * Finally add requestFunds to the module.exports object at the bottom.
+ */
+
 async function requestFunds(req, res) {
     const { toAccount, amount, idempotencyKey } = req.body
 
@@ -266,7 +268,8 @@ async function requestFunds(req, res) {
         })
     }
 
-    // the account being funded must actually belong to whoever is asking
+    // the account being funded must actually belong to whoever is asking —
+    // otherwise anyone could pass a stranger's accountId and fund it instead
     const toUserAccount = await accountModel.findOne({ _id: toAccount, user: req.user._id })
 
     if (!toUserAccount) {
@@ -358,15 +361,13 @@ async function requestFunds(req, res) {
         await session.commitTransaction()
         session.endSession()
 
-        // 👈 Invalidate cached balances for both accounts
-        await redisClient.del(`balance:account:${systemAccount._id}`);
-        await redisClient.del(`balance:account:${toUserAccount._id}`);
-
         return res.status(201).json({
             message: "Funds added to your account",
             transaction
         })
     } catch (error) {
+        // unlike the existing createTransaction function, this one CAN
+        // clean up after itself, because session is in scope in the catch
         await session.abortTransaction()
         session.endSession()
         return res.status(500).json({
@@ -375,6 +376,7 @@ async function requestFunds(req, res) {
     }
 }
 
+// Paste this right above module.exports
 async function getPeerTransactions(req, res) {
     const { peerId } = req.params;
 
@@ -393,6 +395,7 @@ async function getPeerTransactions(req, res) {
     res.status(200).json({ transactions });
 }
 
+// Update your export block to include getPeerTransactions
 module.exports = {
     createTransaction,
     createInitialFundsTransaction,
